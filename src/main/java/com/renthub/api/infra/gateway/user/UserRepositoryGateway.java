@@ -1,6 +1,7 @@
 package com.renthub.api.infra.gateway.user;
 
 import com.renthub.api.core.domain.user.User;
+import com.renthub.api.core.enums.AuthProvider;
 import com.renthub.api.core.gateway.user.UserGateway;
 import com.renthub.api.infra.mapper.user.UserEntityMapper;
 import com.renthub.api.infra.persistence.user.UserEntity;
@@ -27,4 +28,18 @@ public class UserRepositoryGateway implements UserGateway {
 
         return userEntityMapper.toDomain(userEntitySaved);
     }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean existsByEmail(String email) {
+        return userRepository.existsByEmail(email);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean existsByAuthProviderAndProviderId(AuthProvider authProvider, String authProviderId) {
+        return userRepository.existsByAuthProviderAndProviderId(authProvider, authProviderId);
+    }
+
+
 }
