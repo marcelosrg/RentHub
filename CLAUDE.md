@@ -124,7 +124,16 @@ com.renthub.api
 - Commits recentes saíram sem key do Jira: retomar a partir do RH-11.
 - Jira: criar no RH-2 a story "Perfil do usuário: GET e PATCH /users/me (RF03)".
 
-**Próximo: RH-11 Listing (migration + domínio)**
+**Agora: RH-2 Auth Google** (antecipado para antes do Listing, decisão do Marcelo; Jira conectado via conector Atlassian)
+- RH-26 OAuth Client no Google Cloud ← **em andamento**
+- RH-27 Login com Google via Spring Security
+- RH-28 Encontrar ou criar usuário no login
+- RH-29 JWT próprio da API (stateless)
+- RH-30 GET /users/me + RH-25 remover POST /users de dev
+- RH-31 PATCH /users/me
+- Commits usam a key da story (ex.: `(RH-27)`), não a do épico.
+
+**Depois do RH-2: RH-11 Listing (migration + domínio)**
 1. Modelar campos (o Marcelo lista campos/tipos/obrigatoriedade; comparar com o ERD do Obsidian).
 2. `V2__create_listings_table.sql`: FK `host_id` → `users.id`, preço `NUMERIC(10,2)`, lat/long.
 3. Domínio: record `Listing` + value object `Address`.
