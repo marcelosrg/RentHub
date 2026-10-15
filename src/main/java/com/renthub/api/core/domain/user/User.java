@@ -3,6 +3,7 @@ package com.renthub.api.core.domain.user;
 import com.renthub.api.core.enums.AuthProvider;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 public record User(UUID id,
@@ -11,6 +12,6 @@ public record User(UUID id,
                    String avatarUrl,
                    AuthProvider authProvider,
                    String providerId,
-                   Instant createdAt,
-                   Instant updatedAt) {
+                   LocalDateTime createdAt,
+                   LocalDateTime updatedAt) {
 }
