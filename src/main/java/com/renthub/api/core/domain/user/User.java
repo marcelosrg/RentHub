@@ -12,6 +12,6 @@ public record User(UUID id,
                    String avatarUrl,
                    AuthProvider authProvider,
                    String providerId,
-                   LocalDateTime createdAt,
-                   LocalDateTime updatedAt) {
+                   Instant createdAt,
+                   Instant updatedAt) {
 }
