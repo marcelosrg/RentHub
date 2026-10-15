@@ -15,7 +15,7 @@ target/
 
 .env
 
-
+.CLAUDE.md
 ### IntelliJ IDEA ###
 .idea
 *.iws
