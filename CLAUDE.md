@@ -70,6 +70,16 @@ com.renthub.api
 - Mappers: `toEntity` usa o builder; `toDomain` usa o construtor do record (atenção à ordem).
 - `ddl-auto: validate` (schema só via Flyway) e `open-in-view: false`.
 - Migration aplicada não se edita: correção vira nova versão.
+- `@Transactional` sempre de `org.springframework.transaction.annotation` (não o do Jakarta); leituras com `readOnly = true`.
+- Repositórios Spring Data sem `@Repository` (redundante em interface).
+
+**Erros e validação**
+- Exceções de domínio em `core/exception`, hierarquia por categoria: `DomainException` (abstract) → `AlreadyExistsException` (abstract, 409) → específicas (`UserAlreadyExistsException`). `NotFoundException` (404) e `BusinessRuleException` (422) só nascem no primeiro uso. Core nomeia pelo negócio, nunca por status HTTP.
+- `infra/presentation/handler/GlobalExceptionHandler` (`@RestControllerAdvice`) trata **categorias**, devolvendo `ProblemDetail` (RFC 9457). Validação → 400 com `errors` (campo → mensagem); enum inválido no JSON → 400 com valores aceitos; `DataIntegrityViolationException` → 409 genérico (sem vazar SQL).
+- **Não** ligar `spring.mvc.problemdetails.enabled`: o handler do Spring tem prioridade e engole os nossos. Padronização completa (estender `ResponseEntityExceptionHandler` + handler de `Exception` → 500 com log) é escopo do RH-14.
+- Unicidade: use case checa (`existsBy...`) para mensagem clara; constraint do banco é a garantia final (janela de concorrência).
+- DTOs separados por direção: `CreateXRequest` (entrada, com Bean Validation e `@Valid` no controller) e `XResponse` (saída).
+- Spring Boot 4 usa **Jackson 3**: pacote `tools.jackson.*`, não `com.fasterxml.jackson.*`.
 
 **Produto**
 - Não existe `POST /users` público: o usuário é criado no primeiro login com Google (RH-2). Não existe listagem de usuários. Perfil será `GET`/`PATCH /users/me` (RH-2).
@@ -105,24 +115,24 @@ com.renthub.api
 **Pronto**
 - RH-8 setup: API sobe e conecta no Postgres.
 - RH-9 estrutura de pacotes `core`/`infra`.
-- Migration `V1__create_users_table.sql` aplicada.
-- `core/domain/user/User` (record), `core/enums/AuthProvider`, `core/gateway/user/UserGateway` (interface, método `create`), `CreateUserUseCase` + `CreateUserUseCaseImpl`.
-- `infra/persistence/user/UserEntity` (revisar se os ajustes abaixo foram aplicados).
+- RH-10 User de ponta a ponta: migration V1, `User` (record), `UserEntity`, `UserRepository`, `UserEntityMapper`, `UserRepositoryGateway`, `CreateUserUseCase` registrado em `infra/beans`, `CreateUserRequest`/`UserResponse` + `UserDtoMapper`, `POST /api/v1/users` (**endpoint de dev**, remoção no RH-25).
+- Regras de criação de User: email e `(auth_provider, provider_id)` únicos → `UserAlreadyExistsException` (409); email normalizado (`trim` + `toLowerCase(Locale.ROOT)`) no compact constructor do `User`; email exige domínio com ponto no DTO.
+- Hierarquia de exceções de domínio + `GlobalExceptionHandler` com ProblemDetail (ver "Erros e validação").
 
-**Em andamento: fechar o RH-10 (User de ponta a ponta)**
-1. Conferir a `UserEntity`: coluna `provider_id` (havia typo `proviter_id`), `@Enumerated(EnumType.STRING)`, sem `@Data`, `@Builder`, timestamps com `@CreationTimestamp`/`@UpdateTimestamp`.
-2. `UserEntityMapper` em `infra/mapper`: `toEntity` (builder) e `toDomain` (construtor do record). **Revisar o que o Marcelo já escreveu.**
-3. `UserRepository extends JpaRepository<UserEntity, UUID>` em `infra/persistence/user`.
-4. Adaptador em `infra/gateway/user` implementando `UserGateway`, com `@Component` e `@Transactional`.
-5. `@Configuration` em `infra/beans` registrando `CreateUserUseCase`.
-6. Subir a aplicação para validar (`validate` + Flyway) e commitar.
+**Pendências pequenas**
+- Commit `chore`: remover `@Repository` do `UserRepository` e imports de `LocalDateTime` sem uso (`User`, `UserEntity`, `UserResponse`).
+- Commits recentes saíram sem key do Jira: retomar a partir do RH-11.
+- Jira: criar no RH-2 a story "Perfil do usuário: GET e PATCH /users/me (RF03)".
 
-**Pendências no Jira**
-- RH-10 foi marcado como concluído antes da hora: reabrir ou criar story "Adaptador de persistência de User".
-- Criar no RH-2 a story "Perfil do usuário: GET e PATCH /users/me (RF03)".
+**Próximo: RH-11 Listing (migration + domínio)**
+1. Modelar campos (o Marcelo lista campos/tipos/obrigatoriedade; comparar com o ERD do Obsidian).
+2. `V2__create_listings_table.sql`: FK `host_id` → `users.id`, preço `NUMERIC(10,2)`, lat/long.
+3. Domínio: record `Listing` + value object `Address`.
+4. `ListingEntity` (JPA).
+- Atenção ao monólito modular: Listing não acessa `UserRepository` direto (verificar host via porta/use case do módulo User).
 
-**Depois do RH-10**
-- RH-11 Listing (migration + domínio, com `Address` e lat/long), RH-12 Amenity + `listing_amenities`, RH-13 CRUD de Listing, RH-14 tratamento global de erros (Problem Details), RH-15 testes unitários dos use cases (JUnit 5 + Mockito).
+**Depois**
+- RH-12 Amenity + `listing_amenities`, RH-13 CRUD de Listing, RH-14 tratamento global de erros (completar), RH-15 testes unitários dos use cases (JUnit 5 + Mockito).
 
 ## Documentação do projeto
 
