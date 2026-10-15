@@ -2,6 +2,7 @@ package com.renthub.api.core.usecases.user;
 
 import com.renthub.api.core.domain.user.User;
 import com.renthub.api.core.enums.AuthProvider;
+import com.renthub.api.core.exception.UserAlreadyExistsException;
 import com.renthub.api.core.gateway.user.UserGateway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -14,6 +15,9 @@ import java.time.Instant;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -48,6 +52,38 @@ class CreateUserUseCaseImplTest {
         // then
         assertThat(result).isEqualTo(savedUser);
         verify(userGateway).create(newUser);
+    }
+
+    @Test
+    @DisplayName("should throw when email is already in use")
+    void shouldThrowWhenEmailIsAlreadyInUse() {
+        // given
+        User newUser = newUser();
+        when(userGateway.existsByEmail(newUser.email())).thenReturn(true);
+
+        // when / then
+        assertThatThrownBy(() -> createUserUseCase.execute(newUser))
+                .isInstanceOf(UserAlreadyExistsException.class)
+                .hasMessage("Email already in use");
+
+        verify(userGateway, never()).create(any());
+    }
+
+    @Test
+    @DisplayName("should throw when provider is already registered")
+    void shouldThrowWhenProviderIsAlreadyRegistered() {
+        // given
+        User newUser = newUser();
+        when(userGateway.existsByEmail(newUser.email())).thenReturn(false);
+        when(userGateway.existsByAuthProviderAndProviderId(newUser.authProvider(), newUser.providerId()))
+                .thenReturn(true);
+
+        // when / then
+        assertThatThrownBy(() -> createUserUseCase.execute(newUser))
+                .isInstanceOf(UserAlreadyExistsException.class)
+                .hasMessage("User already registered with this provider");
+
+        verify(userGateway, never()).create(any());
     }
 
     private static User newUser() {
