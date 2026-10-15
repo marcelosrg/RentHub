@@ -11,6 +11,6 @@ public record UserResponse (UUID id, String name,
                        String avatarUrl,
                        AuthProvider authProvider,
                        String providerId,
-                       LocalDateTime createdAt,
-                       LocalDateTime updatedAt) {
+                            Instant createdAt,
+                            Instant updatedAt) {
 }
