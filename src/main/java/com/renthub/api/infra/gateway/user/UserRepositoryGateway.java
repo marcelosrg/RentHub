@@ -9,6 +9,8 @@ import com.renthub.api.infra.persistence.user.UserRepository;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.stereotype.Component;
 
+import java.util.Optional;
+
 @Component
 public class UserRepositoryGateway implements UserGateway {
 
@@ -39,6 +41,13 @@ public class UserRepositoryGateway implements UserGateway {
     @Transactional(readOnly = true)
     public boolean existsByAuthProviderAndProviderId(AuthProvider authProvider, String authProviderId) {
         return userRepository.existsByAuthProviderAndProviderId(authProvider, authProviderId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<User> findByAuthProviderAndProviderId(AuthProvider authProvider, String providerId) {
+        return userRepository.findByAuthProviderAndProviderId(authProvider, providerId)
+                .map(userEntityMapper::toDomain);
     }
 
 
