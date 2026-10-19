@@ -132,18 +132,23 @@ com.renthub.api
 - RH-26 OAuth Client no Google Cloud (projeto, tela de consentimento External/teste, client Web com redirect `http://localhost:8080/login/oauth2/code/google`).
 - RH-27 Login com Google via Spring Security: `/oauth2/authorization/google` vai ao Google e volta autenticado; health público.
 
-**Pendências pequenas**
+**Pendências pequenas** (juntar num commit `chore: remove unused imports and redundant annotations`)
 - Imports de `LocalDateTime` sem uso em `UserEntity` e `UserResponse`.
+- `@Repository` redundante no `UserRepository`; espaço em `providerId )` no `UserGateway`.
+- `import ...Customizer;` sem uso no `SecurityConfig`.
 - `.env.example` e alguns arquivos vieram em CRLF; considerar `* text=auto eol=lf` no `.gitattributes`.
 - ADRs em `docs/ADRS/` com espaços e acentos no nome e sem título `#`; ADR-0007 descreve `domain/application/infrastructure/web` por módulo, mas o código é `core`/`infra` por camada (reescrever).
 
 **Agora: RH-2 Auth Google** (antecipado para antes do Listing, decisão do Marcelo)
 - RH-26 ✅ · RH-27 ✅
-- **RH-28 Encontrar ou criar usuário no login ← em andamento (Jira: Em andamento)**
-  - ✅ `findByAuthProviderAndProviderId` → `Optional<User>` no `UserGateway`, `Optional<UserEntity>` no `UserRepository`, adaptador com `.map(userEntityMapper::toDomain)` e `readOnly = true` (commit `feat: add find user by auth provider and provider id`).
-  - ⏭️ **Próximo passo:** `FindOrCreateUserUseCase` + `Impl` em `core/usecases/user`, `User execute(User user)` (User montado com dados do Google, sem id/datas). Lógica: busca por provider; achou → devolve; não achou → cria. Recomendação dada: receber `CreateUserUseCase` no construtor e delegar (reaproveita a checagem de email duplicado). Dica dada: resolver sem `if` com `Optional.orElseGet` (diferença para `orElse`, que avalia o argumento sempre) — deixar o Marcelo descobrir.
-  - Depois: registrar o bean em `infra/beans/BeanConfiguration`; handler de sucesso do login (`OidcUser` → sub, email, name, picture) chamando o use case; testar que o 1º login cria a linha e o 2º não duplica; testes unitários do use case (existente e novo).
-- RH-29 JWT próprio da API (stateless; aqui entram `STATELESS` e CSRF desligado)
+- **RH-28 Encontrar ou criar usuário no login: código e testes prontos (Jira ainda em Em andamento)**
+  - ✅ `findByAuthProviderAndProviderId` → `Optional<User>` (gateway, repositório, adaptador com `readOnly = true`).
+  - ✅ `FindOrCreateUserUseCase` + `Impl`: recebe `UserGateway` e `CreateUserUseCase` (composição, reaproveita a regra de email duplicado); `findBy...().orElseGet(() -> createUserUseCase.execute(user))`. Bean registrado no `BeanConfiguration`.
+  - ✅ `infra/config/security/OAuth2LoginSuccessHandler` (`AuthenticationSuccessHandler`, assinatura de 3 parâmetros): `OidcUser` (pattern matching) → `User` (sub→providerId, email, fullName, picture) → use case. Resposta **temporária** `{"userId": "..."}` (vira o JWT no RH-29). Registrado no `SecurityConfig` com `.oauth2Login(oauth2 -> oauth2.successHandler(successHandler))`.
+  - ✅ `FindOrCreateUserUseCaseImplTest`: usuário existente (`verify(createUserUseCase, never())` protege contra o bug do `orElse`) e usuário novo. Total: 10 testes unitários passando.
+  - ⏭️ **Para fechar:** o Marcelo confirmar o teste manual dos dois logins (aba anônima em `/oauth2/authorization/google`: mesmo `userId` nas duas vezes, uma linha só em `users`). Confirmado → mover RH-28 para Feito e RH-29 para Fazendo no Jira.
+  - Limitação conhecida: exceções lançadas no success handler (ex.: `UserAlreadyExistsException`) **não** passam pelo `@RestControllerAdvice` (rodam na cadeia de filtros do Security, fora do DispatcherServlet) → viram 500. Tratar no RH-29.
+- **RH-29 JWT próprio da API ← próximo** (stateless; aqui entram `SessionCreationPolicy.STATELESS`, CSRF desligado, resource server validando o JWT, success handler devolvendo `{"accessToken": "..."}` e tratamento de erro no handler)
 - RH-30 GET /users/me + RH-25 remover POST /users de dev
 - RH-31 PATCH /users/me (cobre o antigo item "Perfil do usuário: GET e PATCH /users/me")
 
@@ -155,7 +160,14 @@ com.renthub.api
 - Atenção ao monólito modular: Listing não acessa `UserRepository` direto (verificar host via porta/use case do módulo User).
 
 **Depois**
-- RH-12 Amenity + `listing_amenities`, RH-13 CRUD de Listing, RH-14 tratamento global de erros (completar), RH-15 testes unitários dos use cases (JUnit 5 + Mockito).
+- RH-12 Amenity + `listing_amenities`, RH-13 CRUD de Listing, RH-14 tratamento global de erros (completar). RH-15 (testes unitários) já está Feito: cada story nova inclui os próprios testes nos critérios de aceite.
+
+## Aprendizado em andamento
+
+- **Testes unitários:** o Marcelo pediu para aprender de verdade (quer saber responder em entrevista). Já foi explicado: definição (pequeno/isolado/rápido), pirâmide (unitário/integração com Testcontainers/E2E), mock vs stub vs spy vs fake, given/when/then, "um teste por caminho do código" (feliz, cada erro, bordas), `assertThat` (resultado) vs `verify` (interação), e perguntas de entrevista com respostas.
+  - Exercício pendente: descrever os 2 testes do `FindOrCreateUserUseCaseImplTest` no formato "dado que... quando... então...".
+  - Combinado: no RH-31 (PATCH /users/me) o **Marcelo escreve os testes sozinho**; o Claude só lista os cenários e revisa.
+  - Oferecido: gerar nota de estudo de testes para o Obsidian (como a de tratamento de erros, que foi salva em `C:\Users\User\Downloads`).
 
 ## Documentação do projeto
 
