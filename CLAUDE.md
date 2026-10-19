@@ -8,6 +8,8 @@
 - Respostas em **português do Brasil**, diretas. Opinião clara quando houver uma escolha melhor; trade-offs com honestidade.
 - Revisão: primeiro o que está bom e por quê; depois os ajustes, do mais grave ao mais leve. Explicar diferenças de Java em relação a TypeScript quando aparecerem.
 - Sugerir notas curtas para o Obsidian quando surgir um conceito importante.
+- **Um passo por vez.** Dar só o passo atual e esperar o Marcelo fazer antes de apresentar o próximo. Nada de empilhar vários passos, revisões e "próximas etapas" na mesma resposta. Pedido pontual ("só cria a msg de commit") → responder só aquilo.
+- Quando o Marcelo pedir explicitamente para ver o código pronto ("me manda o código pra eu aprender"), mostrar no chat com explicação; ele mesmo digita nos arquivos.
 
 ## O projeto
 
@@ -71,7 +73,7 @@ com.renthub.api
 - `ddl-auto: validate` (schema só via Flyway) e `open-in-view: false`.
 - Migration aplicada não se edita: correção vira nova versão.
 - `@Transactional` sempre de `org.springframework.transaction.annotation` (não o do Jakarta); leituras com `readOnly = true`.
-- Repositórios Spring Data sem `@Repository` (redundante em interface).
+- Repositórios Spring Data **com** `@Repository`: é redundante, mas o Marcelo decidiu manter para deixar explícito. Não sugerir remover.
 
 **Erros e validação**
 - Exceções de domínio em `core/exception`, hierarquia por categoria: `DomainException` (abstract) → `AlreadyExistsException` (abstract, 409) → específicas (`UserAlreadyExistsException`). `NotFoundException` (404) e `BusinessRuleException` (422) só nascem no primeiro uso. Core nomeia pelo negócio, nunca por status HTTP.
@@ -81,13 +83,22 @@ com.renthub.api
 - DTOs separados por direção: `CreateXRequest` (entrada, com Bean Validation e `@Valid` no controller) e `XResponse` (saída).
 - Spring Boot 4 usa **Jackson 3**: pacote `tools.jackson.*`, não `com.fasterxml.jackson.*`.
 
+**Segurança (RH-2)**
+- Starter do Boot 4: `spring-boot-starter-security-oauth2-client` (o nome antigo `spring-boot-starter-oauth2-client` é do Boot 3).
+- Google registrado em `spring.security.oauth2.client.registration.google` com `scope: openid, profile, email` (OIDC; o `sub` do id_token é o `provider_id`). Credenciais `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` no `.env`.
+- `SecurityConfig` em `infra/config/security`: `/actuator/health` e `/actuator/health/**` públicos, resto `authenticated()`, `oauth2Login(Customizer.withDefaults())`. Sintaxe só com lambda (o `.and()` foi removido no Security 7).
+- **Até a RH-29 a autenticação é por sessão** (`JSESSIONID`): o fluxo OAuth2 guarda o `state` na sessão. Não usar `STATELESS` nem desligar CSRF antes do JWT; os dois entram juntos na RH-29 (`csrf(AbstractHttpConfigurer::disable)`).
+- Efeito esperado até lá: `POST /api/v1/users` (dev) exige login e dá 403 por CSRF.
+- Iniciar login: `GET /oauth2/authorization/google`. O callback `/login/oauth2/code/google` é chamado pelo Google, não se acessa direto. Com um só provedor, o Spring redireciona direto para o Google (não mostra `/login`).
+- Sugestão em aberto: trocar `management.endpoint.health.show-details` de `always` para `when-authorized` (health público hoje expõe caminho do disco e detalhes do banco).
+
 **Produto**
 - Não existe `POST /users` público: o usuário é criado no primeiro login com Google (RH-2). Não existe listagem de usuários. Perfil será `GET`/`PATCH /users/me` (RH-2).
 - Email assíncrono via RabbitMQ, publicado após o commit (ADR-0005).
 
 ## Ambiente local
 
-- Postgres no Docker, porta **5433** no host (`compose.yaml`, imagem `postgres:latest` = 18, volume em `/var/lib/postgresql`).
+- Postgres no Docker, porta **5431** no host (`compose.yaml` e `application.yaml`; antes era 5433), imagem `postgres:latest` = 18, volume em `/var/lib/postgresql`.
 - Banco `renthub_dev`, usuário `renthub`; credenciais no `.env` (não versionado; existe `.env.example`).
 - O Spring lê o `.env` via `spring.config.import: optional:file:.env[.properties]`.
 - Arquivos de config em **LF** (já houve bug por CRLF no `.env`).
@@ -95,13 +106,13 @@ com.renthub.api
 
 ## Convenções
 
-- Commits em inglês, Conventional Commits, uma ideia por commit, com a key do Jira: `feat: add user persistence adapter (RH-10)`.
-- Jira (projeto RH), Kanban. Uma story só vai para Concluído quando funciona de ponta a ponta.
+- Commits em inglês, Conventional Commits, uma ideia por commit, **sem a key do Jira** (decisão do Marcelo): `feat: add user persistence adapter`. Não sugerir `(RH-xx)`.
+- Jira (projeto RH, site `marcelohrs2005.atlassian.net`), Kanban. Transições do workflow: `A fazer`, `Fazendo` (→ Em andamento), `Feito`. Uma story só vai para Feito quando funciona de ponta a ponta. O Claude move as stories quando o Marcelo conclui.
 
 ## Roadmap (épicos, em ordem)
 
-1. RH-1 Núcleo CRUD (User, Listing, Amenity + testes) ← **atual**
-2. RH-2 Auth Google (OAuth2)
+1. RH-1 Núcleo CRUD (User, Listing, Amenity + testes): User pronto; Listing/Amenity depois do RH-2
+2. RH-2 Auth Google (OAuth2) ← **atual**
 3. RH-3 Reserva + concorrência
 4. RH-23 Escala horizontal (Nginx + várias instâncias)
 5. RH-24 Réplica de leitura (primário/réplica)
@@ -118,20 +129,23 @@ com.renthub.api
 - RH-10 User de ponta a ponta: migration V1, `User` (record), `UserEntity`, `UserRepository`, `UserEntityMapper`, `UserRepositoryGateway`, `CreateUserUseCase` registrado em `infra/beans`, `CreateUserRequest`/`UserResponse` + `UserDtoMapper`, `POST /api/v1/users` (**endpoint de dev**, remoção no RH-25).
 - Regras de criação de User: email e `(auth_provider, provider_id)` únicos → `UserAlreadyExistsException` (409); email normalizado (`trim` + `toLowerCase(Locale.ROOT)`) no compact constructor do `User`; email exige domínio com ponto no DTO.
 - Hierarquia de exceções de domínio + `GlobalExceptionHandler` com ProblemDetail (ver "Erros e validação").
+- RH-26 OAuth Client no Google Cloud (projeto, tela de consentimento External/teste, client Web com redirect `http://localhost:8080/login/oauth2/code/google`).
+- RH-27 Login com Google via Spring Security: `/oauth2/authorization/google` vai ao Google e volta autenticado; health público.
 
 **Pendências pequenas**
-- Commit `chore`: remover `@Repository` do `UserRepository` e imports de `LocalDateTime` sem uso (`User`, `UserEntity`, `UserResponse`).
-- Commits recentes saíram sem key do Jira: retomar a partir do RH-11.
-- Jira: criar no RH-2 a story "Perfil do usuário: GET e PATCH /users/me (RF03)".
+- Imports de `LocalDateTime` sem uso em `UserEntity` e `UserResponse`.
+- `.env.example` e alguns arquivos vieram em CRLF; considerar `* text=auto eol=lf` no `.gitattributes`.
+- ADRs em `docs/ADRS/` com espaços e acentos no nome e sem título `#`; ADR-0007 descreve `domain/application/infrastructure/web` por módulo, mas o código é `core`/`infra` por camada (reescrever).
 
-**Agora: RH-2 Auth Google** (antecipado para antes do Listing, decisão do Marcelo; Jira conectado via conector Atlassian)
-- RH-26 OAuth Client no Google Cloud ← **em andamento**
-- RH-27 Login com Google via Spring Security
-- RH-28 Encontrar ou criar usuário no login
-- RH-29 JWT próprio da API (stateless)
+**Agora: RH-2 Auth Google** (antecipado para antes do Listing, decisão do Marcelo)
+- RH-26 ✅ · RH-27 ✅
+- **RH-28 Encontrar ou criar usuário no login ← em andamento (Jira: Em andamento)**
+  - ✅ `findByAuthProviderAndProviderId` → `Optional<User>` no `UserGateway`, `Optional<UserEntity>` no `UserRepository`, adaptador com `.map(userEntityMapper::toDomain)` e `readOnly = true` (commit `feat: add find user by auth provider and provider id`).
+  - ⏭️ **Próximo passo:** `FindOrCreateUserUseCase` + `Impl` em `core/usecases/user`, `User execute(User user)` (User montado com dados do Google, sem id/datas). Lógica: busca por provider; achou → devolve; não achou → cria. Recomendação dada: receber `CreateUserUseCase` no construtor e delegar (reaproveita a checagem de email duplicado). Dica dada: resolver sem `if` com `Optional.orElseGet` (diferença para `orElse`, que avalia o argumento sempre) — deixar o Marcelo descobrir.
+  - Depois: registrar o bean em `infra/beans/BeanConfiguration`; handler de sucesso do login (`OidcUser` → sub, email, name, picture) chamando o use case; testar que o 1º login cria a linha e o 2º não duplica; testes unitários do use case (existente e novo).
+- RH-29 JWT próprio da API (stateless; aqui entram `STATELESS` e CSRF desligado)
 - RH-30 GET /users/me + RH-25 remover POST /users de dev
-- RH-31 PATCH /users/me
-- Commits usam a key da story (ex.: `(RH-27)`), não a do épico.
+- RH-31 PATCH /users/me (cobre o antigo item "Perfil do usuário: GET e PATCH /users/me")
 
 **Depois do RH-2: RH-11 Listing (migration + domínio)**
 1. Modelar campos (o Marcelo lista campos/tipos/obrigatoriedade; comparar com o ERD do Obsidian).
@@ -145,4 +159,9 @@ com.renthub.api
 
 ## Documentação do projeto
 
-Requisitos, C4 (contexto e containers), ERD, sequência da reserva e ADRs 0001–0007 estão no Obsidian do Marcelo; os ADRs devem ir para `docs/adr/` no repositório.
+ADRs 0001–0007 e o diagrama de sequência da reserva já estão em `docs/` no repositório. Requisitos (RF/RN/RNF), C4 (contexto e containers) e ERD ainda estão só no Obsidian do Marcelo.
+
+## Trocando de máquina
+
+- O `.env` não é versionado: recriar a partir do `.env.example` com as credenciais do Postgres e `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`. O secret só é mostrado na criação no Google Cloud; se não tiver cópia, gerar um novo secret no client `renthub-local`.
+- Fazer `git push` antes de trocar de máquina (o `develop` local pode estar sem upstream: `git push -u origin develop`).
