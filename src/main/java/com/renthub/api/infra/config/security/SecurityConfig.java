@@ -14,14 +14,15 @@ import org.springframework.security.web.SecurityFilterChain;
 public class SecurityConfig {
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http,
+                                                   OAuth2LoginSuccessHandler successHandler) throws Exception {
         return http
                 .authorizeHttpRequests(authorize -> authorize
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/health/**").permitAll()
                         .anyRequest().authenticated()
                 )
-                .oauth2Login(httpSecurityOAuth2LoginConfigurer -> Customizer.withDefaults())
+                .oauth2Login(oauth2 -> oauth2.successHandler(successHandler))
                 .build();
     }
 }
