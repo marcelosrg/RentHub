@@ -140,15 +140,21 @@ com.renthub.api
 - ADRs em `docs/ADRS/` com espaços e acentos no nome e sem título `#`; ADR-0007 descreve `domain/application/infrastructure/web` por módulo, mas o código é `core`/`infra` por camada (reescrever).
 
 **Agora: RH-2 Auth Google** (antecipado para antes do Listing, decisão do Marcelo)
-- RH-26 ✅ · RH-27 ✅
-- **RH-28 Encontrar ou criar usuário no login: código e testes prontos (Jira ainda em Em andamento)**
+- RH-26 ✅ · RH-27 ✅ · RH-28 ✅ (Jira: Feito)
+- **RH-28 Encontrar ou criar usuário no login: concluído**
   - ✅ `findByAuthProviderAndProviderId` → `Optional<User>` (gateway, repositório, adaptador com `readOnly = true`).
   - ✅ `FindOrCreateUserUseCase` + `Impl`: recebe `UserGateway` e `CreateUserUseCase` (composição, reaproveita a regra de email duplicado); `findBy...().orElseGet(() -> createUserUseCase.execute(user))`. Bean registrado no `BeanConfiguration`.
   - ✅ `infra/config/security/OAuth2LoginSuccessHandler` (`AuthenticationSuccessHandler`, assinatura de 3 parâmetros): `OidcUser` (pattern matching) → `User` (sub→providerId, email, fullName, picture) → use case. Resposta **temporária** `{"userId": "..."}` (vira o JWT no RH-29). Registrado no `SecurityConfig` com `.oauth2Login(oauth2 -> oauth2.successHandler(successHandler))`.
   - ✅ `FindOrCreateUserUseCaseImplTest`: usuário existente (`verify(createUserUseCase, never())` protege contra o bug do `orElse`) e usuário novo. Total: 10 testes unitários passando.
-  - ⏭️ **Para fechar:** o Marcelo confirmar o teste manual dos dois logins (aba anônima em `/oauth2/authorization/google`: mesmo `userId` nas duas vezes, uma linha só em `users`). Confirmado → mover RH-28 para Feito e RH-29 para Fazendo no Jira.
+  - ✅ Teste manual dos dois logins confirmado pelo Marcelo (mesmo `userId`, uma linha só em `users`).
   - Limitação conhecida: exceções lançadas no success handler (ex.: `UserAlreadyExistsException`) **não** passam pelo `@RestControllerAdvice` (rodam na cadeia de filtros do Security, fora do DispatcherServlet) → viram 500. Tratar no RH-29.
-- **RH-29 JWT próprio da API ← próximo** (stateless; aqui entram `SessionCreationPolicy.STATELESS`, CSRF desligado, resource server validando o JWT, success handler devolvendo `{"accessToken": "..."}` e tratamento de erro no handler)
+- **RH-29 JWT próprio da API ← em andamento (Jira: Em andamento)**
+  - ✅ Passo 1: `spring-boot-starter-security-oauth2-resource-server` no `pom.xml` (traz resource server + Nimbus). Segredo HS256 gerado com `openssl rand -base64 32` (256 bits) em `JWT_SECRET` no `.env`; `.env.example` com a chave **sem valor**. `application.yaml` com `security.jwt.secret` e `security.jwt.expiration: 1h` na **raiz** (fora de `spring:`; prefixo nosso).
+  - ✅ Passo 2: `infra/config/security/JwtProperties` = `@ConfigurationProperties(prefix = "security.jwt") record (String secret, Duration expiration)`, ativado com `@EnableConfigurationProperties(JwtProperties.class)` no `SecurityConfig`.
+  - ✅ Passo 3: `infra/config/security/JwtConfig` com beans `SecretKey` (Base64 → `SecretKeySpec` "HmacSHA256"), `JwtEncoder` (`NimbusJwtEncoder(new ImmutableSecret<>(key))`) e `JwtDecoder` (`NimbusJwtDecoder.withSecretKey(key).macAlgorithm(HS256)`). Decisão: HS256 (emissor e validador são a mesma API; mesmo com várias instâncias, todas compartilham o `JWT_SECRET`).
+  - ⚠️ Em 2026-10-20 os passos 1–3 ainda não estavam commitados e tinham 3 erros apontados ao Marcelo: `@EnableConfigurationProperties(SecurityProperties.class)` (classe do Spring importada pelo autocomplete; o certo é `JwtProperties.class`), bloco `jwt:` indentado dentro de `spring.security` no YAML (tem que ir pra raiz), e `.env.example` com `JWT_SECRET=jwtsecret`. Conferir antes de seguir.
+  - ⏭️ Próximo passo (4): serviço de emissão do token em `infra/config/security` (claims `sub` = id do usuário, `iat`, `exp` = agora + `expiration`; header com `JwsHeader.with(MacAlgorithm.HS256)`, porque o padrão do encoder é RS256).
+  - Depois: success handler devolve `{"accessToken": "..."}` e trata as próprias exceções; `SecurityConfig` com `oauth2ResourceServer(jwt)`, `SessionCreationPolicy.STATELESS` e `csrf(AbstractHttpConfigurer::disable)` juntos; sem token / token inválido → 401.
 - RH-30 GET /users/me + RH-25 remover POST /users de dev
 - RH-31 PATCH /users/me (cobre o antigo item "Perfil do usuário: GET e PATCH /users/me")
 
@@ -167,7 +173,27 @@ com.renthub.api
 - **Testes unitários:** o Marcelo pediu para aprender de verdade (quer saber responder em entrevista). Já foi explicado: definição (pequeno/isolado/rápido), pirâmide (unitário/integração com Testcontainers/E2E), mock vs stub vs spy vs fake, given/when/then, "um teste por caminho do código" (feliz, cada erro, bordas), `assertThat` (resultado) vs `verify` (interação), e perguntas de entrevista com respostas.
   - Exercício pendente: descrever os 2 testes do `FindOrCreateUserUseCaseImplTest` no formato "dado que... quando... então...".
   - Combinado: no RH-31 (PATCH /users/me) o **Marcelo escreve os testes sozinho**; o Claude só lista os cenários e revisa.
-  - Oferecido: gerar nota de estudo de testes para o Obsidian (como a de tratamento de erros, que foi salva em `C:\Users\User\Downloads`).
+  - Nota de estudo de testes gerada (`C:\Users\User\Downloads\Testes unitarios em Java (JUnit, Mockito, AssertJ).md`).
+- **Autenticação (OAuth2 + JWT):** o Marcelo pediu um documento de estudo explicando cada passo do módulo de auth, o porquê de cada decisão e o fluxo completo. A geração foi interrompida (o app fechou) e o arquivo **não foi criado**. Pendente: gerar de novo, no template abaixo, cobrindo RH-26 a RH-29 (glossário OAuth2/OIDC/JWT, fluxo ①–⑦, cada classe, decisões, perguntas de entrevista).
+
+**Notas para o Obsidian:** salvar em `/mnt/c/Users/User/Downloads/` (= `C:\Users\User\Downloads`) e usar sempre este template:
+
+```
+<font color="#92d050">data: </font>AAAA-MM-DD HH:MM
+Status:
+Tags:
+
+
+---
+
+# Conceito Geral
+
+
+----
+
+
+# Referências
+```
 
 ## Documentação do projeto
 
