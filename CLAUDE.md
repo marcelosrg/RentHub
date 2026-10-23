@@ -86,9 +86,12 @@ com.renthub.api
 **Segurança (RH-2)**
 - Starter do Boot 4: `spring-boot-starter-security-oauth2-client` (o nome antigo `spring-boot-starter-oauth2-client` é do Boot 3).
 - Google registrado em `spring.security.oauth2.client.registration.google` com `scope: openid, profile, email` (OIDC; o `sub` do id_token é o `provider_id`). Credenciais `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` no `.env`.
-- `SecurityConfig` em `infra/config/security`: `/actuator/health` e `/actuator/health/**` públicos, resto `authenticated()`, `oauth2Login(Customizer.withDefaults())`. Sintaxe só com lambda (o `.and()` foi removido no Security 7).
-- **Até a RH-29 a autenticação é por sessão** (`JSESSIONID`): o fluxo OAuth2 guarda o `state` na sessão. Não usar `STATELESS` nem desligar CSRF antes do JWT; os dois entram juntos na RH-29 (`csrf(AbstractHttpConfigurer::disable)`).
-- Efeito esperado até lá: `POST /api/v1/users` (dev) exige login e dá 403 por CSRF.
+- `SecurityConfig` em `infra/config/security`: `csrf(AbstractHttpConfigurer::disable)`, `SessionCreationPolicy.STATELESS`, `/actuator/health/**` público, resto `authenticated()`, `oauth2Login(oauth2 -> oauth2.successHandler(successHandler))`, `oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()))`. Sintaxe só com lambda (o `.and()` foi removido no Security 7).
+- **Autenticação stateless por JWT próprio (desde a RH-29):** login no Google → success handler encontra/cria o usuário → `JwtTokenService` emite JWT HS256 (`iss=renthub-api`, `sub`=id do usuário no RentHub, `iat`, `exp` 1h) → resposta `{"accessToken", "tokenType": "Bearer"}`. Requisições usam `Authorization: Bearer <token>`; sem token/inválido → 401. A sessão só existe durante o vai-e-volta do OAuth2 (guarda o `state`). CSRF desligado junto com o STATELESS (sem cookie de autenticação, não há CSRF).
+- Peças em `infra/config/security`: `JwtProperties` (`@ConfigurationProperties("security.jwt")`, ativado por `@EnableConfigurationProperties(JwtProperties.class)` no `SecurityConfig`), `JwtConfig` (`SecretKey` HmacSHA256 a partir do Base64 do `.env`, `JwtEncoder`, `JwtDecoder` travado em HS256), `JwtTokenService` (header com `JwsHeader.with(MacAlgorithm.HS256)`, porque o encoder usa RS256 por padrão), `OAuth2LoginSuccessHandler` (usa `JsonMapper` do Jackson 3; trata `AlreadyExistsException` → 409 Problem Details, porque roda na cadeia de filtros, fora do `@RestControllerAdvice`).
+- `security.jwt` fica na **raiz** do `application.yaml` (não dentro de `spring:`); já houve bug por indentação.
+- No controller, o usuário logado vem de `@AuthenticationPrincipal Jwt jwt` → `UUID.fromString(jwt.getSubject())`. Use cases recebem só o `UUID` (o core não sabe o que é token/"me").
+- Testar com curl: login em aba anônima em `/oauth2/authorization/google`, copiar o `accessToken`, `curl -H "Authorization: Bearer <token>" http://localhost:8080/api/v1/users/me`.
 - Iniciar login: `GET /oauth2/authorization/google`. O callback `/login/oauth2/code/google` é chamado pelo Google, não se acessa direto. Com um só provedor, o Spring redireciona direto para o Google (não mostra `/login`).
 - Sugestão em aberto: trocar `management.endpoint.health.show-details` de `always` para `when-authorized` (health público hoje expõe caminho do disco e detalhes do banco).
 
@@ -134,28 +137,29 @@ com.renthub.api
 
 **Pendências pequenas** (juntar num commit `chore: remove unused imports and redundant annotations`)
 - Imports de `LocalDateTime` sem uso em `UserEntity` e `UserResponse`.
-- `@Repository` redundante no `UserRepository`; espaço em `providerId )` no `UserGateway`.
+- Espaço em `providerId )` no `UserGateway` (o `@Repository` fica, por decisão do Marcelo).
 - `import ...Customizer;` sem uso no `SecurityConfig`.
 - `.env.example` e alguns arquivos vieram em CRLF; considerar `* text=auto eol=lf` no `.gitattributes`.
 - ADRs em `docs/ADRS/` com espaços e acentos no nome e sem título `#`; ADR-0007 descreve `domain/application/infrastructure/web` por módulo, mas o código é `core`/`infra` por camada (reescrever).
 
 **Agora: RH-2 Auth Google** (antecipado para antes do Listing, decisão do Marcelo)
-- RH-26 ✅ · RH-27 ✅ · RH-28 ✅ (Jira: Feito)
+- RH-26 ✅ · RH-27 ✅ · RH-28 ✅ · RH-29 ✅ (Jira: Feito)
 - **RH-28 Encontrar ou criar usuário no login: concluído**
   - ✅ `findByAuthProviderAndProviderId` → `Optional<User>` (gateway, repositório, adaptador com `readOnly = true`).
   - ✅ `FindOrCreateUserUseCase` + `Impl`: recebe `UserGateway` e `CreateUserUseCase` (composição, reaproveita a regra de email duplicado); `findBy...().orElseGet(() -> createUserUseCase.execute(user))`. Bean registrado no `BeanConfiguration`.
   - ✅ `infra/config/security/OAuth2LoginSuccessHandler` (`AuthenticationSuccessHandler`, assinatura de 3 parâmetros): `OidcUser` (pattern matching) → `User` (sub→providerId, email, fullName, picture) → use case. Resposta **temporária** `{"userId": "..."}` (vira o JWT no RH-29). Registrado no `SecurityConfig` com `.oauth2Login(oauth2 -> oauth2.successHandler(successHandler))`.
   - ✅ `FindOrCreateUserUseCaseImplTest`: usuário existente (`verify(createUserUseCase, never())` protege contra o bug do `orElse`) e usuário novo. Total: 10 testes unitários passando.
   - ✅ Teste manual dos dois logins confirmado pelo Marcelo (mesmo `userId`, uma linha só em `users`).
-  - Limitação conhecida: exceções lançadas no success handler (ex.: `UserAlreadyExistsException`) **não** passam pelo `@RestControllerAdvice` (rodam na cadeia de filtros do Security, fora do DispatcherServlet) → viram 500. Tratar no RH-29.
-- **RH-29 JWT próprio da API ← em andamento (Jira: Em andamento)**
-  - ✅ Passo 1: `spring-boot-starter-security-oauth2-resource-server` no `pom.xml` (traz resource server + Nimbus). Segredo HS256 gerado com `openssl rand -base64 32` (256 bits) em `JWT_SECRET` no `.env`; `.env.example` com a chave **sem valor**. `application.yaml` com `security.jwt.secret` e `security.jwt.expiration: 1h` na **raiz** (fora de `spring:`; prefixo nosso).
-  - ✅ Passo 2: `infra/config/security/JwtProperties` = `@ConfigurationProperties(prefix = "security.jwt") record (String secret, Duration expiration)`, ativado com `@EnableConfigurationProperties(JwtProperties.class)` no `SecurityConfig`.
-  - ✅ Passo 3: `infra/config/security/JwtConfig` com beans `SecretKey` (Base64 → `SecretKeySpec` "HmacSHA256"), `JwtEncoder` (`NimbusJwtEncoder(new ImmutableSecret<>(key))`) e `JwtDecoder` (`NimbusJwtDecoder.withSecretKey(key).macAlgorithm(HS256)`). Decisão: HS256 (emissor e validador são a mesma API; mesmo com várias instâncias, todas compartilham o `JWT_SECRET`).
-  - ⚠️ Em 2026-10-20 os passos 1–3 ainda não estavam commitados e tinham 3 erros apontados ao Marcelo: `@EnableConfigurationProperties(SecurityProperties.class)` (classe do Spring importada pelo autocomplete; o certo é `JwtProperties.class`), bloco `jwt:` indentado dentro de `spring.security` no YAML (tem que ir pra raiz), e `.env.example` com `JWT_SECRET=jwtsecret`. Conferir antes de seguir.
-  - ⏭️ Próximo passo (4): serviço de emissão do token em `infra/config/security` (claims `sub` = id do usuário, `iat`, `exp` = agora + `expiration`; header com `JwsHeader.with(MacAlgorithm.HS256)`, porque o padrão do encoder é RS256).
-  - Depois: success handler devolve `{"accessToken": "..."}` e trata as próprias exceções; `SecurityConfig` com `oauth2ResourceServer(jwt)`, `SessionCreationPolicy.STATELESS` e `csrf(AbstractHttpConfigurer::disable)` juntos; sem token / token inválido → 401.
-- RH-30 GET /users/me + RH-25 remover POST /users de dev
+  - Limitação das exceções no success handler (fora do `@RestControllerAdvice`): resolvida no RH-29 com `try/catch` de `AlreadyExistsException` no próprio handler.
+- **RH-29 JWT próprio da API: concluído** (Jira: Feito, com comentário do que foi entregue). Testado: sem token → 401; token malformado → 401 `invalid_token`; token válido → autenticado. Detalhes na seção "Segurança (RH-2)".
+- **RH-30 GET /users/me + RH-25 remover POST /users de dev ← em andamento (Jira: Em andamento)**
+  - ✅ Passo 1: `core/exception/NotFoundException` (abstract) + `UserNotFoundException(UUID id)` (monta "User not found: " + id).
+  - ✅ Passo 2: `handleNotFound` no `GlobalExceptionHandler` (categoria `NotFoundException` → 404).
+  - ✅ Passo 3: `Optional<User> findById(UUID)` no `UserGateway` + adaptador (`readOnly = true`, `.map(userEntityMapper::toDomain)`; o repositório já herda `findById` do `JpaRepository`).
+  - ✅ Passo 4: `GetUserByIdUseCase` + `GetUserByIdUseCaseImpl` (`findById(...).orElseThrow(() -> new UserNotFoundException(id))`, retorna `User`, não `Optional`), bean registrado.
+  - ✅ Passo 5: `GET /api/v1/users/me` no `UserController` com `@AuthenticationPrincipal Jwt`. Testado: com token → 200 com os dados; sem token → 401.
+  - ⏭️ **Passo 6 (decisão pendente do Marcelo):** remover o `POST /api/v1/users` de dev (RH-25). O Marcelo cogitou manter pensando em cadastro com email/senha no futuro. Recomendação dada: **remover** (YAGNI; o endpoint atual exige token, deixa o cliente escolher `authProvider`/`providerId` e permite um usuário logado criar contas para outros, o que é falha de segurança; um cadastro com senha seria outro endpoint, público, com BCrypt e `AuthProvider.LOCAL`; o `CreateUserUseCase` fica de qualquer forma). Se remover: apagar `createUser` e o campo `CreateUserUseCase` do `UserController`, `toDomain(CreateUserRequest)` do `UserDtoMapper` e o arquivo `CreateUserRequest`; **manter** `CreateUserUseCase` + `Impl` + bean (usados pelo `FindOrCreateUserUseCase`). Rodar `./mvnw test -Dtest='*Test'`.
+  - Depois do passo 6: testes unitários do `GetUserByIdUseCaseImpl` (existe / não existe → `UserNotFoundException`) e README atualizado (fluxo de login e endpoints). Aí mover RH-30 e RH-25 para Feito.
 - RH-31 PATCH /users/me (cobre o antigo item "Perfil do usuário: GET e PATCH /users/me")
 
 **Depois do RH-2: RH-11 Listing (migration + domínio)**
