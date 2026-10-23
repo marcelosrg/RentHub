@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.stereotype.Component;
 
 import java.util.Optional;
+import java.util.UUID;
 
 @Component
 public class UserRepositoryGateway implements UserGateway {
@@ -47,6 +48,13 @@ public class UserRepositoryGateway implements UserGateway {
     @Transactional(readOnly = true)
     public Optional<User> findByAuthProviderAndProviderId(AuthProvider authProvider, String providerId) {
         return userRepository.findByAuthProviderAndProviderId(authProvider, providerId)
+                .map(userEntityMapper::toDomain);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<User> findById(UUID userId) {
+        return userRepository.findById(userId)
                 .map(userEntityMapper::toDomain);
     }
 

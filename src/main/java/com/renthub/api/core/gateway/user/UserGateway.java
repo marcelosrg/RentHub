@@ -4,6 +4,7 @@ import com.renthub.api.core.domain.user.User;
 import com.renthub.api.core.enums.AuthProvider;
 
 import java.util.Optional;
+import java.util.UUID;
 
 public interface UserGateway {
     User create(User user);
@@ -12,5 +13,6 @@ public interface UserGateway {
     boolean existsByAuthProviderAndProviderId(AuthProvider authProvider, String providerId );
 
     Optional<User> findByAuthProviderAndProviderId(AuthProvider authProvider, String providerId);
+    Optional<User> findById(UUID userId);
 
 }
