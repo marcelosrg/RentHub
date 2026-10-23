@@ -1,8 +1,6 @@
 package com.renthub.api.infra.presentation.user;
-
 import com.renthub.api.core.domain.user.User;
 import com.renthub.api.core.usecases.user.CreateUserUseCase;
-import com.renthub.api.infra.dtos.user.CreateUserRequest;
 import com.renthub.api.infra.dtos.user.CreateUserRequest;
 import com.renthub.api.infra.dtos.user.UserResponse;
 import com.renthub.api.infra.mapper.user.UserDtoMapper;

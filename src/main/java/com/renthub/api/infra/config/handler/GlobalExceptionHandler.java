@@ -1,6 +1,7 @@
-package com.renthub.api.infra.presentation.handler;
+package com.renthub.api.infra.config.handler;
 
 import com.renthub.api.core.exception.AlreadyExistsException;
+import com.renthub.api.core.exception.NotFoundException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -21,6 +22,12 @@ public class GlobalExceptionHandler {
     public ProblemDetail handleAlreadyExists(AlreadyExistsException ex) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
     }
+
+    @ExceptionHandler(NotFoundException.class)
+    public ProblemDetail handleNotFound(NotFoundException ex) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
+    }
+
 
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ProblemDetail handleDataIntegrityViolation(DataIntegrityViolationException ex) {
