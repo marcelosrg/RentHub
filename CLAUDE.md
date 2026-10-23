@@ -77,7 +77,7 @@ com.renthub.api
 
 **Erros e validação**
 - Exceções de domínio em `core/exception`, hierarquia por categoria: `DomainException` (abstract) → `AlreadyExistsException` (abstract, 409) → específicas (`UserAlreadyExistsException`). `NotFoundException` (404) e `BusinessRuleException` (422) só nascem no primeiro uso. Core nomeia pelo negócio, nunca por status HTTP.
-- `infra/presentation/handler/GlobalExceptionHandler` (`@RestControllerAdvice`) trata **categorias**, devolvendo `ProblemDetail` (RFC 9457). Validação → 400 com `errors` (campo → mensagem); enum inválido no JSON → 400 com valores aceitos; `DataIntegrityViolationException` → 409 genérico (sem vazar SQL).
+- `infra/config/handler/GlobalExceptionHandler` (`@RestControllerAdvice`; o Marcelo moveu de `presentation/handler` para `config/handler` em 2026-10-23) trata **categorias**, devolvendo `ProblemDetail` (RFC 9457). `AlreadyExistsException` → 409, `NotFoundException` → 404. Validação → 400 com `errors` (campo → mensagem); enum inválido no JSON → 400 com valores aceitos; `DataIntegrityViolationException` → 409 genérico (sem vazar SQL).
 - **Não** ligar `spring.mvc.problemdetails.enabled`: o handler do Spring tem prioridade e engole os nossos. Padronização completa (estender `ResponseEntityExceptionHandler` + handler de `Exception` → 500 com log) é escopo do RH-14.
 - Unicidade: use case checa (`existsBy...`) para mensagem clara; constraint do banco é a garantia final (janela de concorrência).
 - DTOs separados por direção: `CreateXRequest` (entrada, com Bean Validation e `@Valid` no controller) e `XResponse` (saída).
